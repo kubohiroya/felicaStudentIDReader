@@ -181,9 +181,9 @@ now = Time.new
 
 out_filename = now.strftime("%Y-%m-%d-%a-")+getAcademicTime(now).to_s
 
-students = StudentDB::Load("students.csv")
+students = StudentDB::Load("var/students.csv")
 
-db = AttendanceDB.new(out_filename+".csv")
+db = AttendanceDB.new("var/#{out_filename}.csv")
 
 prev_idm = nil
 
