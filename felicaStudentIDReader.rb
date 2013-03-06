@@ -31,6 +31,8 @@ require "romkan"
 
 #------------------------------------
 
+FELICA_READER_VAR = 'var'
+
 COMMA_SEPARATOR = ","
 TAB_SEPARATOR = "\t"
 SEPARATOR = TAB_SEPARATOR
@@ -70,8 +72,9 @@ class StudentDB
       next if line =~ /^\#/ || line.chop.size == 0
       idm, student_id, fullname, furigana, gender = line.chop.split(COMMA_SEPARATOR)
       student_hash[idm] = Student.new(idm, student_id, fullname, furigana, gender)
-      puts idm + " "+ furigana.to_roma
+      puts "init StudentDB: " + idm + " "+ furigana.to_roma
     end
+    puts "read StudentDB done."
     return student_hash
   end
 end
@@ -90,12 +93,14 @@ end
 
 class AttendanceDB
   
-  def initialize(filename)
+  def initialize
+
+    @filename = get_filename
 
     @attendance = {}
 
-    if FileTest::exists?(filename)
-      File.open(filename).each_line do |line|
+    if FileTest::exists?(@filename)
+      File.open(@filename).each_line do |line|
         next if line =~ /^\#/ || line.chop.size == 0
         ftime, idm, student_id, fullname, furigana, gender = line.chop.split(SEPARATOR)
         year, mon, day, wday, hour, min, sec = ftime.split(/[\s\-\:]/)
@@ -104,8 +109,14 @@ class AttendanceDB
       end.close
     end
 
-    @file = File.open(filename, 'a')
+    @file = File.open(@filename, 'a')
     
+  end
+
+  def get_filename
+    now = Time.new
+    out_filename = now.strftime("%Y-%m-%d-%a-")+getAcademicTime(now).to_s
+    return "#{FELICA_READER_VAR}/#{out_filename}.csv"
   end
 
   def exists?(idm)
@@ -117,6 +128,13 @@ class AttendanceDB
   end
 
   def store(attendance, student)
+    filename = get_filename
+    if(@filename != filename)
+      @file.close
+      @filename = filename
+      @file = File.new(@filename)
+    end
+
     a = attendance
     s = student
 
@@ -179,11 +197,10 @@ end
 
 now = Time.new
 
-out_filename = now.strftime("%Y-%m-%d-%a-")+getAcademicTime(now).to_s
 
-students = StudentDB::Load("var/students.csv")
+students = StudentDB::Load("#{FELICA_READER_VAR}/students.csv")
 
-db = AttendanceDB.new("var/#{out_filename}.csv")
+db = AttendanceDB.new
 
 prev_idm = nil
 
@@ -214,6 +231,11 @@ def on_unknown_card(attendance)
 end
 
 CardReader.new{|idm, pmm|
+
+  now = Time.new
+  puts now.strftime("%Y-%m-%d-%a-")+getAcademicTime(now).to_s+" "+now.strftime("%H:%M:%S")
+  
+
   s = students[idm]
   if(s)
     if(db.exists?(idm)) 
