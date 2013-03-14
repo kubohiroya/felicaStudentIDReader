@@ -71,8 +71,9 @@ class StudentDB
     File.open(filename).each_line do |line|
       next if line =~ /^\#/ || line.chop.size == 0
       idm, student_id, fullname, furigana, gender = line.chop.split(COMMA_SEPARATOR)
-      student_hash[idm] = Student.new(idm, student_id, fullname, furigana, gender)
-      puts "init StudentDB: " + idm + " "+ furigana.to_roma
+      key = student_id
+      student_hash[key] = Student.new(idm, student_id, fullname, furigana, gender)
+      puts "init StudentDB: " + key + " "+ furigana.to_roma
     end
     puts "read StudentDB done."
     return student_hash
@@ -91,13 +92,16 @@ class Student
 
 end
 
-class AttendanceDB
+class ReadDB
+
+  attr_reader :unknown_card_serial
   
   def initialize
 
     @filename = get_filename
+    @filename_unknown_card = get_filename_unknown_card
 
-    @attendance = {}
+    init_vars
 
     if FileTest::exists?(@filename)
       File.open(@filename).each_line do |line|
@@ -105,56 +109,107 @@ class AttendanceDB
         ftime, idm, student_id, fullname, furigana, gender = line.chop.split(SEPARATOR)
         year, mon, day, wday, hour, min, sec = ftime.split(/[\s\-\:]/)
         time = Time.mktime(year, mon, day, hour, min, sec)
-        @attendance[idm] = Attendance.new(idm, time)
+        key = idm
+        @attendance[key] = Read.new(key, time)
       end.close
     end
 
     @file = File.open(@filename, 'a')
+
+    if FileTest::exists?(@filename_unknown_card)
+      File.open(@filename_unknown_card).each_line do |line|
+        next if line =~ /^\#/ || line.chop.size == 0
+        ftime, idm, unknown_card_serial = line.chop.split(SEPARATOR)
+        year, mon, day, wday, hour, min, sec = ftime.split(/[\s\-\:]/)
+        time = Time.mktime(year, mon, day, hour, min, sec)
+        @unknown[idm] = Read.new(idm, time)
+      end.close
+    end
+
+    @file_unknown_card = File.open(@filename_unknown_card, 'a')
     
   end
 
-  def get_filename
+  def init_vars
+    @attendance = {}
+    @unknown = {}
+    @unknown_card_serial = 0
+  end
+
+  def unknown_card_serial
+    @unknown_card_serial += 1
+  end
+
+  def get_filename(extension='csv')
     now = Time.new
     out_filename = now.strftime("%Y-%m-%d-%a-")+getAcademicTime(now).to_s
-    return "#{FELICA_READER_VAR}/#{out_filename}.csv"
+    return "#{FELICA_READER_VAR}/#{out_filename}.#{extension}"
   end
 
-  def exists?(idm)
-    @attendance.key?(idm)
+  def get_filename_unknown_card
+    get_filename("unknown.csv")
   end
 
-  def [](idm)
-    @attendance[idm]
+  def exists?(key)
+    @attendance.key?(key)
   end
 
-  def store(attendance, student)
+  def [](key)
+    @attendance[key]
+  end
+
+  def store(read, student)
     filename = get_filename
     if(@filename != filename)
       @file.close
       @filename = filename
       @file = File.new(@filename)
+      init_vars
     end
 
-    a = attendance
+    r = read
     s = student
 
-    @attendance[a.idm] = a
-    ftime = a.time.strftime("%Y-%m-%d-%a %H:%M:%S")
-    line = [ftime, a.idm, s.student_id, s.fullname, s.furigana, s.gender].join(SEPARATOR)
+    @attendance[r.key] = r
+    ftime = r.time.strftime("%Y-%m-%d-%a %H:%M:%S")
+    line = [ftime, r.key, s.student_id, s.fullname, s.furigana, s.gender].join(SEPARATOR)
     @file.puts(line)
     @file.flush
+  end
+
+  def store_unknown_card(read)
+    if(@unknown.key?(read.key))
+      return -1
+    end
+
+    filename_unknown_card = get_filename_unknown_card
+    if(@filename_unknown_card != filename_unknown_card)
+      @file_unknown_card.close
+      @filename_unknown_card = filename_unknown_card
+      @file_unknown_card = File.new(@filename_unknown_card)
+      init_vars
+    end
+      
+    r = read
+
+    @unknown[r.key] = r
+    ftime = r.time.strftime("%Y-%m-%d-%a %H:%M:%S")
+    line = [ftime, r.key, unknown_card_serial].join(SEPARATOR)
+    @file_unknown_card.puts(line)
+    @file_unknown_card.flush
+
+    return @unknown_card_serial
   end
 
 end
 
 
-class Attendance
-  attr_reader :idm, :time
-  def initialize(idm, time)
-    @idm = idm
+class Read
+  attr_reader :key, :time
+  def initialize(key, time)
+    @key = key
     @time = time
   end
-
 end
 
 class CardReader
@@ -186,7 +241,8 @@ class CardReader
       pasori.felica_polling(s) {|felica|
         idm = hex_dump(felica.idm)
         pmm = hex_dump(felica.pmm)
-        @on_read.call(idm, pmm)
+        key = idm
+        @on_read.call(key)
       }
     }
   end
@@ -197,61 +253,75 @@ end
 
 now = Time.new
 
-
 students = StudentDB::Load("#{FELICA_READER_VAR}/students.csv")
 
-db = AttendanceDB.new
-
-prev_idm = nil
+db = ReadDB.new
 
 def furigana_to_yomi(furigana)
   furigana.toeuc.to_roma
 end
 
-def on_success(attendance, student)
+def on_success(read, student)
   yomi = furigana_to_yomi(student.furigana)
   puts "認証完了 #{student.idm}\t#{student.student_id} #{student.fullname}"
-  system "say 'Authorization succeed. Welcome, #{yomi}!'"
+  greeting = get_greeting
+  system "say '#{greeting},  #{yomi}!'"
 end
 
-def on_do_nothing(attendance, student)
+def get_greeting
+  hour = Time.new.hour
+  if(hour < 12)
+    return  "Good Morning"
+  elsif(hour < 17)
+    return "Good Afternoon"
+  else
+    return "Good Evening"
+  end
+end
+
+def on_do_nothing(read, student)
   puts "認証済み #{student.idm}\t#{student.student_id} #{student.fullname}"
   system "say 'Already Authorized'"
 end
 
-def on_notice_ignorance(attendance, student)
+def on_notice_ignorance(read, student)
   yomi = furigana_to_yomi(student.furigana)
   puts "認証済み #{student.idm}\t#{student.student_id} #{student.fullname} #{yomi}"
-  system "say 'Already Authorized, #{yomi}!'"
+  system "say 'Alread Authorized'"
 end
 
-def on_unknown_card(attendance)
-  puts "認証失敗 #{attendance.idm}"
-  system "say 'Authorization failed. This is unknown card.'"
+def on_unknown_card(read, unknown_card_serial)
+  puts "認証失敗 #{read.idm}"
+  system "say 'Unknown card number #{unknown_card_serial}'"
 end
 
-CardReader.new{|idm, pmm|
+CardReader.new{|key|
 
   now = Time.new
-  puts now.strftime("%Y-%m-%d-%a-")+getAcademicTime(now).to_s+" "+now.strftime("%H:%M:%S")
+#  puts now.strftime("%Y-%m-%d-%a-")+getAcademicTime(now).to_s+" "+now.strftime("%H:%M:%S")
   
+  s = students[key]
 
-  s = students[idm]
   if(s)
-    if(db.exists?(idm)) 
-      a = db[idm]
-      if(prev_idm == idm)
-        on_do_nothing(a, s)
+    if(db.exists?(key)) 
+      r = db[key]
+      if(prev_key == key)
+        on_do_nothing(r, s)
       else
-        on_notice_ignorance(a, s)
+        on_notice_ignorance(r, s)
       end
     else
-      a = Attendance.new(idm, Time.new)
-      db.store(a, s)
-      on_success(a, s)
+      r = Read.new(key, Time.new)
+      db.store(r, s)
+      on_success(r, s)
     end
   else
-    on_unknown_card(a)
+    r = Read.new(key, Time.new)
+    unknown_card_serial = db.store_unknown_card(r)
+    if(unknown_card_serial != -1)
+      on_unknown_card(r, unknown_card_serial)
+      sleep 1
+    end
   end
-  prev_idm = idm
+  prev_key = key
 }
