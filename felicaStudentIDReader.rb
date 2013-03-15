@@ -291,7 +291,7 @@ def on_notice_ignorance(read, student)
 end
 
 def on_unknown_card(read, unknown_card_serial)
-  puts "認証失敗 #{read.idm}"
+  puts "認証失敗 #{read.key}"
   system "say 'Unknown card number #{unknown_card_serial}'"
 end
 
