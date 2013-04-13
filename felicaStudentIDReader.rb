@@ -1,4 +1,5 @@
 #!/opt/local/bin/ruby
+# -*- coding: utf-8 -*-
 
 # -*- coding: utf-8 -*-
 
@@ -221,9 +222,13 @@ class CardReader
     pasori.set_timeout(50)
     while true
       begin
-        pasori.felica_polling {|felica|
-          system = felica.request_system
-#          dump_system_info(pasori, system)
+#        pasori.felica_polling {|felica|
+#          system = felica.request_system
+##          dump_system_info(pasori, system)
+#          read_student_id_card(pasori, system)
+#        }
+        system = 0x88B4
+        pasori.felica_polling(system) {|felica|
           read_student_id_card(pasori, system)
         }
       rescue PasoriError
