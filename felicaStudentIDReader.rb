@@ -34,7 +34,8 @@ DEBUG = 0
 
 #FELICA_LITE_SYSTEM_CODE = 0x88B4
 FELICA_LITE_SYSTEM_CODE = 0xFFFF
-
+STUDENT_INFO_BLOCK_ID = 4
+STUDENT_INFO_LENGTH = 1
 
 #学生名簿ファイルの読み出し元・読み取り結果ファイルの保存先
 FELICA_READER_VAR_DIRECTORY = 'var'
@@ -292,17 +293,13 @@ class CardReader
 
     while true
       begin
-#        pasori.felica_polling {|felica|
-#          system = felica.request_system
-#          dump_system_info(pasori, system)
-#        }
         pasori.felica_polling(@system_code) {|felica|
-          system = felica.request_system
-          system.each {|s|
-            pasori.felica_polling(s) {|felica|
+#          system = felica.request_system
+#          system.each {|s|
+#            pasori.felica_polling(s) {|felica|
               on_read.call(felica)
-            }
-          }
+#            }
+#          }
         }
       rescue PasoriError
         # PasoriError(タイムアウト)が出たらときには、
@@ -384,12 +381,13 @@ card_reader.polling{|felica|
   idm = hex_dump(felica.idm)
   pmm = hex_dump(felica.pmm)
 
-  # !
-  # !
-  # FIXME: read student_id from felica
-  # !
-  # !
-  student_id = 'dummyID'
+  area = felica.area
+  service = felica.service[STUDENT_INFO_BLOCK_ID]
+
+  line = felica.read(service, STUDENT_INFO_LENGTH)
+  student_id = line[2..7].map{|i| (i.to_i - 30).to_s}.join
+
+#  student_id = 'dummyID'
 
   if(student_id == nil)
     # 学生証から学籍番号が読み取れなかった場合はエラー終了
