@@ -1,8 +1,6 @@
 #!/opt/local/bin/ruby
 # -*- coding: utf-8 -*-
 
-# -*- coding: utf-8 -*-
-
 # felica card reader to check attendee
 # Copyright (c) 2013 Hiroya Kubo <hiroya@cuc.ac.jp>
 #  
