@@ -1,7 +1,7 @@
 felicaStudentIDReader
 =====================
 
-FeliCa StudentID card reader implemented with ruby/ruby-libpafe/libpafe
+FeliCa StudentID card reader implemented with ruby/libpafe-ruby/libpafe
 
 
 Usage
