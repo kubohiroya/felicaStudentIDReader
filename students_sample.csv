@@ -1,2 +1,2 @@
-#IDmm,student_id,氏名,よみ,男または女
-
+#student_id, fullname, furigana, gender
+*,ダミーのカード,だみーのかーど,男性または女性
