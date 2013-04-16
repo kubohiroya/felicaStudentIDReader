@@ -32,13 +32,30 @@ require "romkan"
 
 DEBUG = 0
 
-#FELICA_LITE_SYSTEM_CODE = 0x88B4
-FELICA_LITE_SYSTEM_CODE = 0xFFFF
-STUDENT_INFO_BLOCK_ID = 4
-STUDENT_INFO_LENGTH = 1
+FELICA_LITE_SYSTEM_CODE = 0x88B4
+ANY_SYSTEM_CODE = 0xFFFF
+
+STUDENT_INFO_BLOCK_ID = 3
+STUDENT_INFO_INDEX = 1
+STUDENT_INFO_SUBSTRING_SPAN = 2..7
+ASCII_CODE_CHAR_0 = 30
+ASCII_CODE_CHAR_9 = 39
+
+Sinfo = {
+  0 => " Area Code                  ",
+  4 => " Ramdom Access R/W          ",
+  5 => " Random Access Read only    ",
+  6 => " Cyclic Access R/W          ",
+  7 => " Cyclic Access Read only    ",
+  8 => " Purse (Direct)             ",
+  9 => " Purse (Cashback/decrement) ",
+  10 => " Purse (Decrement)          ",
+  11 => " Purse (Read Only)          ",
+}
 
 #学生名簿ファイルの読み出し元・読み取り結果ファイルの保存先
 FELICA_READER_VAR_DIRECTORY = 'var'
+STUDENTS_CSV_FILENAME = 'students.csv'
 
 COMMA_SEPARATOR = ","
 TAB_SEPARATOR = "\t"
@@ -86,6 +103,15 @@ def hex_dump(ary)
   ary.unpack("C*").map{|c| sprintf("%02X", c)}.join
 end
 
+def attr2str(attr)
+  a = attr.attr
+  s = Sinfo[a >> 1]
+  s = " INVALID or UNKNOWN" unless (s)
+  s += " (PROTECTED) " if (attr.protected?)
+  
+  s
+end
+
 def format_time(time)
   return time.strftime("%Y-%m-%d-%a-")+getAcademicTime(time).to_s+" "+time.strftime("%H:%M:%S")
 end
@@ -129,12 +155,12 @@ end
 class ReadStatusDB
 
   # 学生名簿に存在しない学生の学生証を管理するための通し番号
-  attr_reader :unknown_card_serial
+  attr_reader :error_card_serial
   
   def initialize
 
     @filename = get_filename
-    @filename_unknown_card = get_filename_unknown_card
+    @filename_error_card = get_filename_error_card
 
     clear_memory
 
@@ -150,13 +176,13 @@ class ReadStatusDB
 
     @file = File.open(@filename, 'a')
 
-    if FileTest::exists?(@filename_unknown_card)
-      File.open(@filename_unknown_card).each_line do |line|
+    if FileTest::exists?(@filename_error_card)
+      File.open(@filename_error_card).each_line do |line|
         next if line =~ /^\#/ || line.chop.size == 0
-        ftime, student_id, unknown_card_serial = line.chop.split(SEPARATOR)
+        ftime, student_id, error_card_serial = line.chop.split(SEPARATOR)
         year, mon, day, wday, hour, min, sec = ftime.split(/[\s\-\:]/)
         time = Time.mktime(year, mon, day, hour, min, sec)
-        @unknown[student_id] = ReadStatus.new(student_id, time)
+        @errorcard[student_id] = ReadStatus.new(student_id, time)
       end.close
     end
     
@@ -165,14 +191,14 @@ class ReadStatusDB
   # メモリ上のデータベースを初期化する
   def clear_memory
     @attendance = {}
-    @unknown = {}
-    @unknown_card_serial = 0
+    @errorcard = {}
+    @error_card_serial = 0
   end
 
   # 学生名簿に存在しない学生の学生証を管理するための通し番号として、このメソッドを呼ぶたびに新しいものを返す
   # @return [Integer] 学生名簿に存在しない学生の学生証を管理するための通し番号として、新しいものを返す
-  def unknown_card_serial
-    @unknown_card_serial += 1
+  def error_card_serial
+    @error_card_serial += 1
   end
 
   # 学生証の読み取り結果を保存してある/これから保存するための、ファイル名を返す。
@@ -185,8 +211,8 @@ class ReadStatusDB
   end
 
   # 名簿にない学生の学生証の読み取り結果を保存してある/これから保存するための、ファイル名を返す。
-  def get_filename_unknown_card
-    get_filename("unknown.csv")
+  def get_filename_error_card
+    get_filename("error.csv")
   end
 
   # その学生証が、現在の時限において読み取り済みかどうかを返す
@@ -232,35 +258,35 @@ class ReadStatusDB
   # 名簿にない学生の学生証の読み取り結果を保存する
   # @param [ReadStatus] read_status 読み取り状況オブジェクト
   # @return 保存した「名簿にない学生の学生証」の通し番号を返す。もしその学生証がすでに保存済みのものならば、-1を返す
-  def store_unknown_card(read_status)
+  def store_error_card(read_status)
 
-    if(@unknown.key?(read_status.student_id))
+    if(@errorcard.key?(read_status.student_id))
       # すでに保存済みの「名簿にない学生の学生証」ならば-1を返して終了
       return -1
     end
 
     #必要に応じて保存先ファイルを切り替える
-    filename_unknown_card = get_filename_unknown_card
+    filename_error_card = get_filename_error_card
 
-    if(@filename_unknown_card != filename_unknown_card)
+    if(@file_error_card == nil || @filename_error_card != filename_error_card)
       # 古いCSVファイルを開いている場合にはクローズし、新しく現時刻の時限のファイルを開く
-      if(@file_unknown_card)
-        @file_unknown_card.close
+      if(@file_error_card)
+        @file_error_card.close
       end
-      @filename_unknown_card = filename_unknown_card
-      @file_unknown_card = File.new(@filename_unknown_card)
+      @filename_error_card = filename_error_card
+      @file_error_card = File.new(@filename_error_card, 'a')
       clear_memory
     end
       
     # この学籍番号の学生の読み取り状況をメモリ上のデータベースに登録する
-    @unknown[read_status.student_id] = read_status
+    @errorcard[read_status.student_id] = read_status
     # この学籍番号の学生の読み取り状況をCSVファイル上の1行として保存する
     ftime = read_status.time.strftime("%Y-%m-%d-%a %H:%M:%S")
-    line = [ftime, read_status.student_id, unknown_card_serial].join(SEPARATOR)
-    @file_unknown_card.puts(line)
-    @file_unknown_card.flush
+    line = [ftime, read_status.student_id, error_card_serial].join(SEPARATOR)
+    @file_error_card.puts(line)
+    @file_error_card.flush
 
-    return @unknown_card_serial
+    return @error_card_serial
   end
 
 end
@@ -294,12 +320,7 @@ class CardReader
     while true
       begin
         pasori.felica_polling(@system_code) {|felica|
-#          system = felica.request_system
-#          system.each {|s|
-#            pasori.felica_polling(s) {|felica|
-              on_read.call(felica)
-#            }
-#          }
+          on_read.call(felica)
         }
       rescue PasoriError
         # PasoriError(タイムアウト)が出たらときには、
@@ -333,7 +354,7 @@ class OnReadActions
   end
 
   # 学生名簿に学生データが存在しない場合
-  def on_unknown_card(read_status, unknown_card_serial)
+  def on_error_card(read_status, error_card_serial)
     puts format_time(read_status.time)
     puts "認証失敗 #{read_status.student_id}"
   end
@@ -357,42 +378,65 @@ class OnReadActionsOfMacOSX < OnReadActions
     system "say 'Already Authorized'"
   end
 
-  def on_unknown_card(read_status, unknown_card_serial)
-    super(read_status, unknown_card_serial)
-    system "say 'Unknown card number #{unknown_card_serial}'"
+  def on_error_card(read_status, error_card_serial)
+    super(read_status, error_card_serial)
+    system "say 'Error card number #{error_card_serial}'"
   end
 end
 
 # ----------------------------------------------------------
 
-student_db = StudentDB::Load("#{FELICA_READER_VAR_DIRECTORY}/students.csv")
+# 学生名簿CSVを読み取り、データベースを初期化
+student_db = StudentDB::Load("#{FELICA_READER_VAR_DIRECTORY}/#{STUDENTS_CSV_FILENAME}")
+
+# 現在の日時をもとに該当する出席確認済み学生名簿CSVを読み取り、データベースを初期化
 read_db = ReadStatusDB.new
 
-card_reader = CardReader.new(FELICA_LITE_SYSTEM_CODE)
+# 読み取り結果の表示アクションを指定
+#onReadActions = OnReadActionsOfMacOSX.new
+onReadActions = OnReadActions.new
 
-onReadActions = OnReadActionsOfMacOSX.new
-
+# 直前のループで読み取った学籍番号を保持する変数を宣言
 prev_student_id = nil
 
-card_reader.polling{|felica|
-
-  now = Time.new
+# 読み取りのポーリングをする(無限ループ)
+#CardReader.new(ANY_SYSTEM_CODE).polling{|felica|
+CardReader.new(FELICA_LITE_SYSTEM_CODE).polling{|felica|
 
   idm = hex_dump(felica.idm)
   pmm = hex_dump(felica.pmm)
 
-  area = felica.area
-  service = felica.service[STUDENT_INFO_BLOCK_ID]
+  felica_area = felica.service[STUDENT_INFO_BLOCK_ID] # S_PAD_3
+  if(! felica_area.protected?)
+    # 保護領域の場合にはnil(エラー値)
+    # S_PAD_3の内データ配列を取得
+    felica_area_data = felica.read(felica_area, 0)
+    # S_PAD_3内データ配列のうち、2番目から7番目の部分配列(学籍番号を表す生データ)
+    student_id_raw_data = felica_area_data[STUDENT_INFO_SUBSTRING_SPAN]
+    
+    # 学籍番号を表すASCIIコード配列を1文字づつ可読文字に変換して学籍番号の文字列を生成
+    student_id = student_id_raw_data.map{|c|
+      # ASCII文字をASCIIコードの数値に変換
+      i = c.to_i
+      if(ASCII_CODE_CHAR_0 <= i && i <= ASCII_CODE_CHAR_9)
+        # ０から9の範囲の文字に変換
+        (i - ASCII_CODE_CHAR_0).to_s
+      else
+        # ０から9の範囲外の場合には'*'の文字に変換
+        '*'
+      end
+    }.join # 変換した文字をつなげて文字列を生成
 
-  line = felica.read(service, STUDENT_INFO_LENGTH)
-  student_id = line[2..7].map{|i| (i.to_i - 30).to_s}.join
-
-#  student_id = 'dummyID'
+  end
 
   if(student_id == nil)
     # 学生証から学籍番号が読み取れなかった場合はエラー終了
+    throw "invalid FeliCa Lite Card!"
   end
-  
+
+  # 現在時刻を取得
+  now = Time.new
+
   # 学生証から学籍番号が読み取れた場合
   student = student_db[student_id]
   if(student)
@@ -402,7 +446,7 @@ card_reader.polling{|felica|
     if(read_status)
       # 読み取り済みの場合
       if(prev_student_id == student_id)
-        # 直前に読み取り済みの場合は、何もしない
+        # 直前のループで読み取り済みの場合は、何もしない
         onReadActions.on_double_read(read_status, student)
       else
         # すでに読み取り済みであることを警告
@@ -419,10 +463,12 @@ card_reader.polling{|felica|
   else
     # 学生名簿に学生データが存在しない場合
     read_status = ReadStatus.new(student_id, now)
-    unknown_card_serial = read_db.store_unknown_card(read_status)
-    if(unknown_card_serial != -1)
-      onReadActions.on_unknown_card(read_status, unknown_card_serial)
+    error_card_serial = read_db.store_error_card(read_status)
+    if(error_card_serial != -1)
+      onReadActions.on_error_card(read_status, error_card_serial)
     end
   end
+
+  # 前回に読み取ったカードの学籍番号を保存
   prev_student_id = student_id
 }
