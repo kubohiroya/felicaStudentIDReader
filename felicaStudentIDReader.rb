@@ -35,11 +35,16 @@ DEBUG = 0
 FELICA_LITE_SYSTEM_CODE = 0x88B4
 ANY_SYSTEM_CODE = 0xFFFF
 
-STUDENT_INFO_BLOCK_ID = 3
-STUDENT_INFO_INDEX = 1
+STUDENT_INFO_SERVICE_CODE = 0x000B
+STUDENT_INFO_BLOCK_NUM = 0x8004
 STUDENT_INFO_SUBSTRING_SPAN = 2..7
+
 ASCII_CODE_CHAR_0 = 30
 ASCII_CODE_CHAR_9 = 39
+ASCII_CODE_CHAR_A = 65
+ASCII_CODE_CHAR_Z = 90
+ASCII_CODE_CHAR_a = 97
+ASCII_CODE_CHAR_z = 122
 
 Sinfo = {
   0 => " Area Code                  ",
@@ -410,7 +415,7 @@ CardReader.new(FELICA_LITE_SYSTEM_CODE).polling{|felica|
   if(! felica_area.protected?)
     # 保護領域の場合にはnil(エラー値)
     # S_PAD_3の内データ配列を取得
-    felica_area_data = felica.read(felica_area, 0)
+    felica_area_data = felica.read(STUDENT_INFO_SERVICE_CODE, STUDENT_INFO_BLOCK_NUM, 0)
     # S_PAD_3内データ配列のうち、2番目から7番目の部分配列(学籍番号を表す生データ)
     student_id_raw_data = felica_area_data[STUDENT_INFO_SUBSTRING_SPAN]
     
@@ -418,7 +423,8 @@ CardReader.new(FELICA_LITE_SYSTEM_CODE).polling{|felica|
     student_id = student_id_raw_data.map{|c|
       # ASCII文字をASCIIコードの数値に変換
       i = c.to_i
-      if(ASCII_CODE_CHAR_0 <= i && i <= ASCII_CODE_CHAR_9)
+      if((ASCII_CODE_CHAR_0 <= i && i <= ASCII_CODE_CHAR_9) || 
+         (ASCII_CODE_CHAR_a <= i && i <= ASCII_CODE_CHAR_z))
         # ０から9の範囲の文字に変換
         (i - ASCII_CODE_CHAR_0).to_s
       else
