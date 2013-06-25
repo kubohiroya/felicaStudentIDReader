@@ -3,6 +3,10 @@ felicaStudentIDReader
 
 FeliCa StudentID card reader implemented with ruby/libpafe-ruby/libpafe
 
+This project is obsolate. 
+
+The successor is here: https://github.com/kubohiroya/studentIDReader.js
+
 
 Usage
 =====
